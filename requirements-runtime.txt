@@ -1,3 +1,5 @@
+# Runtime-only dependencies for the container image (test tooling excluded).
+# Kept in sync with requirements.txt minus pytest/pytest-asyncio.
 fastapi==0.115.14
 starlette==0.41.3
 uvicorn[standard]==0.32.1
@@ -8,5 +10,3 @@ python-multipart==0.0.30
 cryptography==50.0.0
 bcrypt==4.0.1
 httpx==0.28.1
-pytest==7.4.3
-pytest-asyncio==0.21.1

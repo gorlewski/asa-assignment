@@ -1,0 +1,153 @@
+# Default values for the VulnTracker API chart.
+# All defaults are chosen to be secure-by-default; overriding them should be a
+# conscious decision.
+
+replicaCount: 2
+
+# Keep only a small ReplicaSet history to reduce clutter/attack surface.
+revisionHistoryLimit: 3
+
+# Rolling update with zero downtime.
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+# Ensure at least one replica stays available during voluntary disruptions.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Spread replicas across nodes for availability.
+topologySpreadConstraints:
+  enabled: true
+
+image:
+  repository: vulntracker-api
+  # Pin by digest in real environments. Tag is used here for local/demo builds.
+  tag: "dev"
+  # Prefer a digest, e.g.:
+  # digest: "sha256:..."
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  # No cloud IAM annotations by default; add e.g. IRSA / Workload Identity here.
+  annotations: {}
+  # The app does not talk to the Kubernetes API, so do not mount a token.
+  automountServiceAccountToken: false
+
+service:
+  type: ClusterIP
+  port: 8000
+
+# Container listen port (matches the Dockerfile EXPOSE / uvicorn).
+containerPort: 8000
+
+# ---------------------------------------------------------------------------
+# Security contexts — least privilege by default.
+# ---------------------------------------------------------------------------
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10001
+  capabilities:
+    drop: ["ALL"]
+
+# ---------------------------------------------------------------------------
+# Resource requests/limits — required by the brief.
+# ---------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# ---------------------------------------------------------------------------
+# Secrets: sourced from a secrets manager via the External Secrets Operator.
+# Nothing sensitive is stored in this chart or in plain env vars.
+# ---------------------------------------------------------------------------
+externalSecrets:
+  enabled: true
+  # Name of a pre-existing ClusterSecretStore/SecretStore backed by your
+  # secrets manager (AWS Secrets Manager, GCP Secret Manager, Vault, ...).
+  secretStoreRef:
+    name: cluster-secret-store
+    kind: ClusterSecretStore
+  refreshInterval: "1h"
+  # Logical key in the backend -> env var mounted into the pod.
+  # The remote keys hold the actual values; none appear here.
+  data:
+    - secretKey: SECRET_KEY
+      remoteKey: vulntracker/jwt-secret-key
+    - secretKey: DB_PASSWORD
+      remoteKey: vulntracker/db-password
+    - secretKey: ADMIN_API_KEY
+      remoteKey: vulntracker/admin-api-key
+
+# Non-secret configuration passed as plain env.
+env:
+  APP_BASE_URL: "http://localhost:8000"
+  SHARE_LINK_TTL_HOURS: "24"
+  # SQLite on an ephemeral volume for the demo. In production point this at a
+  # managed database whose credentials come from the secret above.
+  DATABASE_URL: "sqlite:////data/vulntracker.db"
+
+# Writable ephemeral volume for the read-only-rootfs container.
+dataVolume:
+  # For a stateful DB use a PVC; for the stateless demo an emptyDir is fine.
+  emptyDir: {}
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy — restrict ingress to only what is required.
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  # Only allow ingress to the API port from pods carrying this label
+  # (e.g. the ingress controller / API gateway namespace).
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          network/ingress: "true"
+  # Egress: DNS plus the notification service. Everything else denied.
+  egress:
+    dns: true
+    # Destination-restricted egress: only to pods that match this selector on
+    # the given port, not to every IP. Adjust the selector/namespace to match
+    # how the notify service is labelled in your cluster.
+    to:
+      - selector:
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vulntracker-notify
+          namespaceSelector:
+            matchLabels:
+              network/notify: "true"
+        ports:
+          - port: 3001
+            protocol: TCP
+
+# Liveness/readiness probes hit the app's /health endpoint.
+probes:
+  enabled: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
