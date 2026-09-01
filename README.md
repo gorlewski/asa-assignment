@@ -77,6 +77,41 @@ npm test
 
 ---
 
+## Feature: Shared Report Link (Task 1)
+
+Share a specific scan result with an external stakeholder via a unique,
+time-limited link with optional password protection.
+
+| Method | Path                     | Auth         | Description                                                                                   |
+| ------ | ------------------------ | ------------ | --------------------------------------------------------------------------------------------- |
+| `POST` | `/scans/{scan_id}/share` | Bearer token | Generate a share token for a scan you own. Optional `password` in the body. Returns `share_url`. |
+| `GET`  | `/share/{token}`         | None (public) | Return the scan if the token is valid and unexpired. If protected, requires `?password=`.     |
+
+Example:
+
+```bash
+# Generate a link (optionally password-protected)
+curl -X POST http://localhost:8000/scans/1/share \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"password": "optional-secret"}'
+# -> {"share_url": "http://localhost:8000/share/<token>", "expires_at": "..."}
+
+# Access the shared scan
+curl "http://localhost:8000/share/<token>?password=optional-secret"
+```
+
+### Design and security decisions
+
+- **Token**: 256-bit CSPRNG value via `secrets.token_urlsafe(32)` — unguessable and non-sequential.
+- **Token storage**: only the SHA-256 digest of the token is persisted (`share_links.token_hash`); the raw token is never stored, so a database disclosure does not yield usable links.
+- **Password**: optional; hashed with bcrypt via the existing `passlib` context and verified in constant time. Plaintext is never stored or logged.
+- **Expiry**: enforced server-side; links live for 24h (`SHARE_LINK_TTL_HOURS`, overridable via env).
+- **Access control**: only the scan owner can create a share link; requests for another user's scan return `404` (no existence oracle).
+- **Data minimisation**: the public projection omits `owner_id` and `remediation_notes` so a public link does not leak internal ownership or remediation detail.
+- **Uniform errors**: unknown, expired and invalid tokens all return a generic `404`; bad/missing passwords return `401` — no leakage of which case occurred.
+- **`share_url` construction**: built from the incoming request host (`request.base_url`) with a fallback to `APP_BASE_URL` (default `http://localhost:8000`). Note: the `Host` header is client-controlled and can be spoofed; acceptable for this prototype and called out here.
+
 ## Your Tasks
 
 ### Task 1 — Extend the App _(~1–1.5 hrs)_
