@@ -1,4 +1,9 @@
-DATABASE_URL = "sqlite:///./vulntracker.db"
+import os
+
+# Database location is environment-driven so the container can point it at a
+# writable volume while keeping the root filesystem read-only. Default is
+# unchanged for local dev / CI.
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./vulntracker.db")
 
 SECRET_KEY = "v3ry-s3cr3t-jwt-k3y-do-not-share"
 ALGORITHM = "HS256"
@@ -15,7 +20,6 @@ NOTIFY_SERVICE_URL = "http://localhost:3001"
 
 # Public base URL used as a fallback when building share links if the incoming
 # request host is unavailable. Not a secret. Override via env in real deploys.
-import os
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:8000")
 
 # Share link lifetime (hours). The assignment requires 24h.

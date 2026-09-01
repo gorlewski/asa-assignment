@@ -1,0 +1,38 @@
+# VCS / CI
+.git
+.github
+.gitignore
+.gitattributes
+
+# Python virtualenvs / caches
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+.pytest_cache
+.python-version
+
+# Tests and docs are not needed in the runtime image
+tests
+docs
+reports
+notify
+
+# Local databases and logs
+*.db
+*.sqlite3
+*.log
+
+# Editor / OS cruft
+.idea
+.vscode
+.DS_Store
+
+# The image builds only what it needs
+Dockerfile
+.dockerignore
+helm
+terraform
+README.md
+requirements.txt
