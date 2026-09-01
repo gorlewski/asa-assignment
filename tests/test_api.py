@@ -148,3 +148,124 @@ def test_delete_scan():
 
     resp = client.delete(f"/scans/{scan_id}", headers=auth_headers(token))
     assert resp.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# Shared Report Link (Task 1)
+# ---------------------------------------------------------------------------
+
+def _create_scan(token, title="Shareable finding"):
+    return client.post("/scans", json={
+        "title": title,
+        "severity": "high",
+        "affected_component": "GET /share",
+    }, headers=auth_headers(token)).json()["id"]
+
+
+def test_share_link_create_and_fetch():
+    token = register_and_login()
+    scan_id = _create_scan(token)
+
+    resp = client.post(f"/scans/{scan_id}/share", json={}, headers=auth_headers(token))
+    assert resp.status_code == 201
+    body = resp.json()
+    assert "share_url" in body and "/share/" in body["share_url"]
+
+    share_token = body["share_url"].rsplit("/share/", 1)[1]
+    pub = client.get(f"/share/{share_token}")
+    assert pub.status_code == 200
+    data = pub.json()
+    assert data["id"] == scan_id
+    # Public projection must not leak ownership.
+    assert "owner_id" not in data
+    assert "remediation_notes" not in data
+
+
+def test_share_link_password_protected():
+    token = register_and_login()
+    scan_id = _create_scan(token)
+
+    resp = client.post(
+        f"/scans/{scan_id}/share",
+        json={"password": "s3cret-share"},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 201
+    share_token = resp.json()["share_url"].rsplit("/share/", 1)[1]
+
+    # No password -> 401
+    assert client.get(f"/share/{share_token}").status_code == 401
+    # Wrong password -> 401
+    assert client.get(f"/share/{share_token}?password=wrong").status_code == 401
+    # Correct password -> 200
+    ok = client.get(f"/share/{share_token}?password=s3cret-share")
+    assert ok.status_code == 200
+    assert ok.json()["id"] == scan_id
+
+
+def test_share_link_invalid_token():
+    assert client.get("/share/does-not-exist").status_code == 404
+
+
+def test_share_link_expired():
+    from datetime import datetime, timedelta
+    token = register_and_login()
+    scan_id = _create_scan(token)
+    resp = client.post(f"/scans/{scan_id}/share", json={}, headers=auth_headers(token))
+    share_token = resp.json()["share_url"].rsplit("/share/", 1)[1]
+
+    # Force expiry directly in the DB.
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
+    import models  # noqa: E402
+    db = TestingSessionLocal()
+    try:
+        link = db.query(models.ShareLink).first()
+        link.expires_at = datetime.utcnow() - timedelta(minutes=1)
+        db.commit()
+    finally:
+        db.close()
+
+    assert client.get(f"/share/{share_token}").status_code == 404
+
+
+def test_share_link_idor_other_users_scan():
+    # Alice owns a scan; Bob must not be able to share it.
+    alice = register_and_login(username="alice_idor", email="alice_idor@example.com")
+    scan_id = _create_scan(alice)
+    bob = register_and_login(username="bob_idor", email="bob_idor@example.com")
+
+    resp = client.post(f"/scans/{scan_id}/share", json={}, headers=auth_headers(bob))
+    assert resp.status_code == 404
+
+
+def test_share_link_requires_auth():
+    token = register_and_login()
+    scan_id = _create_scan(token)
+    # No Authorization header -> rejected.
+    resp = client.post(f"/scans/{scan_id}/share", json={})
+    assert resp.status_code in (401, 403)
+
+
+def test_share_link_password_too_long_rejected():
+    token = register_and_login()
+    scan_id = _create_scan(token)
+    # 65 chars exceeds the 64-char bound -> 422 validation error, preventing
+    # silent bcrypt truncation collisions and KDF DoS.
+    resp = client.post(
+        f"/scans/{scan_id}/share",
+        json={"password": "x" * 65},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 422
+
+
+def test_share_link_password_blank_rejected():
+    token = register_and_login()
+    scan_id = _create_scan(token)
+    resp = client.post(
+        f"/scans/{scan_id}/share",
+        json={"password": "   "},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 400
