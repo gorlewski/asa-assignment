@@ -245,3 +245,27 @@ def test_share_link_requires_auth():
     # No Authorization header -> rejected.
     resp = client.post(f"/scans/{scan_id}/share", json={})
     assert resp.status_code in (401, 403)
+
+
+def test_share_link_password_too_long_rejected():
+    token = register_and_login()
+    scan_id = _create_scan(token)
+    # 65 chars exceeds the 64-char bound -> 422 validation error, preventing
+    # silent bcrypt truncation collisions and KDF DoS.
+    resp = client.post(
+        f"/scans/{scan_id}/share",
+        json={"password": "x" * 65},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 422
+
+
+def test_share_link_password_blank_rejected():
+    token = register_and_login()
+    scan_id = _create_scan(token)
+    resp = client.post(
+        f"/scans/{scan_id}/share",
+        json={"password": "   "},
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 400

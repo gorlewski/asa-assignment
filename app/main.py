@@ -8,7 +8,7 @@ from typing import List, Optional
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import models
@@ -111,7 +111,10 @@ class ScanOut(BaseModel):
 
 class ShareCreate(BaseModel):
     # Optional password to protect the shared link. Never stored in plaintext.
-    password: Optional[str] = None
+    # Bound to <= 64 chars: bcrypt silently truncates input beyond 72 bytes
+    # (so longer inputs would collide), and an unbounded value is a cheap DoS
+    # vector against the KDF. 64 chars is comfortably within the bcrypt limit.
+    password: Optional[str] = Field(default=None, min_length=1, max_length=64)
 
 
 class ShareUrlOut(BaseModel):
@@ -340,10 +343,12 @@ def create_share_link(
     token = secrets.token_urlsafe(32)
     expires_at = datetime.utcnow() + timedelta(hours=SHARE_LINK_TTL_HOURS)
 
+    # Pydantic already enforces 1..64 chars; reject whitespace-only here so an
+    # effectively-empty password cannot be set.
     password_hash = None
     if payload.password is not None:
         if not payload.password.strip():
-            raise HTTPException(status_code=400, detail="password must not be empty")
+            raise HTTPException(status_code=400, detail="password must not be blank")
         password_hash = get_password_hash(payload.password)
 
     link = models.ShareLink(
@@ -369,6 +374,11 @@ def get_shared_scan(
     password: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
+    # Bound the token length to avoid processing absurd input; a valid token is
+    # a short URL-safe string. Any invalid length simply maps to the generic 404.
+    if not token or len(token) > 128:
+        raise HTTPException(status_code=404, detail="Share link not found or expired")
+
     # Look up by token hash. A generic 404 is returned for unknown, expired or
     # otherwise invalid tokens to avoid leaking which case occurred.
     link = db.query(models.ShareLink).filter(

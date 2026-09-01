@@ -110,6 +110,8 @@ curl "http://localhost:8000/share/<token>?password=optional-secret"
 - **Access control**: only the scan owner can create a share link; requests for another user's scan return `404` (no existence oracle).
 - **Data minimisation**: the public projection omits `owner_id` and `remediation_notes` so a public link does not leak internal ownership or remediation detail.
 - **Uniform errors**: unknown, expired and invalid tokens all return a generic `404`; bad/missing passwords return `401` — no leakage of which case occurred.
+- **Password via query string (known trade-off)**: the brief specifies the password is supplied as a `?password=` query parameter on `GET /share/{token}`. Query strings can be captured in server/proxy logs, browser history and the `Referer` header (CWE-598). We follow the brief but flag this; a hardened design would accept the password in a header or POST body. Recorded in the findings.
+- **Password length is bounded to 64 chars**: bcrypt silently truncates input beyond 72 bytes, so unbounded passwords could collide (CWE-521) and are a cheap KDF DoS vector.
 - **`share_url` construction**: built from the incoming request host (`request.base_url`) with a fallback to `APP_BASE_URL` (default `http://localhost:8000`). Note: the `Host` header is client-controlled and can be spoofed; acceptable for this prototype and called out here.
 
 ## Your Tasks
