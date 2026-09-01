@@ -26,6 +26,9 @@ WORKDIR /build
 # Install dependencies into an isolated prefix so the runtime stage copies only
 # what it needs (no build caches, no pip metadata bloat).
 COPY requirements-runtime.txt .
+# NOTE (supply chain): versions are pinned, but not hash-pinned. In production
+# we would generate a lockfile with hashes and use `pip install --require-hashes`
+# (or a poetry.lock/Pipfile.lock) to defend against PyPI package tampering.
 RUN pip install --prefix=/install -r requirements-runtime.txt
 
 # ------------------------------------------------------------------ runtime ---

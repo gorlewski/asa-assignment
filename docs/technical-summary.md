@@ -26,8 +26,8 @@ first-party access to Anthropic models — a setup that works well for this kind
 of security + coding task. The main model was **Claude Opus 4.8**, which drove
 the analysis, the code and the reasoning throughout.
 
-As a deliberate quality step we plan a **second-opinion review (multi-model
-validation)** using **Gemini**. The point is not to run the same model twice:
+As a deliberate quality step we ran a **second-opinion review (multi-model
+validation)** using **Gemini** (see section 6a for what it found). The point is not to run the same model twice:
 the same family tends to repeat the same blind spots and the same assumptions.
 A different model family reviews the findings independently and is more likely
 to catch things the first model missed — including its own overconfidence. This
@@ -216,6 +216,32 @@ git history).
 
 ---
 
+## 6a. Multi-model review (Gemini) — what the second opinion caught
+
+We then ran the promised second-opinion review with **Gemini** (a different model
+family from the Claude Opus 4.8 used for the main work). It was worth it: the
+independent pass found a **genuine critical issue the first model missed**.
+
+- **CRITICAL — tenant isolation in `GET /scans/search`.** When we fixed the SQL
+  injection we parameterised the query but forgot the `owner_id` filter that the
+  other scan routes have. Search therefore leaked other tenants' scans (BOLA).
+  Fixed: the query is now owner-scoped; regression test added.
+- **HIGH — Host header injection in the share URL.** The link was built from
+  `request.base_url` (client-controlled Host). Fixed to use the trusted
+  `APP_BASE_URL`; regression test added.
+- **MEDIUM — unbounded `GET /scans` pagination (DoS).** `limit` had no ceiling.
+  Fixed to `Query(50, ge=1, le=100)`; regression test added.
+- **LOW/MEDIUM — explicit bcrypt work factor** (`bcrypt__rounds=12`), and a
+  **supply-chain note** to hash-pin dependencies, kept as recommendations.
+
+A process note worth recording: the reviewer first claimed to have created a
+branch that did not actually exist. We verified every claim against the code
+before acting — a reminder that model output (from any model) must be checked,
+not trusted. That verification loop is exactly what multi-model validation buys
+you. Full detail is in `multi-model-review.md`.
+
+---
+
 ## 7. What we would do next (with more time)
 
 - Rotate all previously exposed secrets and confirm production reads them from
@@ -242,6 +268,7 @@ git history).
 - **Shift-left and hard gates.** Same scanners locally and in CI; blocking gates
   once the code was clean.
 - **Multi-model validation.** Claude Opus 4.8 for the main work, Gemini for an
-  independent second opinion, to reduce single-model blind spots.
+  independent second opinion — which caught a real critical tenant-isolation
+  gap in search that we then fixed with tests.
 - **Honest residual risks.** We document what we did not fix and why, rather than
   claiming everything is solved.

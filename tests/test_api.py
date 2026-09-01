@@ -381,3 +381,47 @@ def test_error_handler_does_not_leak_internals():
     assert "traceback" not in body
     assert "ValueError" not in body
     assert body == '{"error":"Internal Server Error"}'
+
+
+def test_search_is_tenant_isolated():
+    # Multi-model (Gemini) review finding #1: search must not leak other
+    # tenants' scans. Alice creates a uniquely-titled scan; Bob searching for
+    # that term must get zero results, while Alice gets her own.
+    alice = register_and_login(username="alice_search", email="alice_search@example.com")
+    marker = "zzuniquemarker42"
+    client.post("/scans", json={
+        "title": f"Alice {marker} finding",
+        "severity": "high",
+        "affected_component": "secret",
+    }, headers=auth_headers(alice))
+
+    bob = register_and_login(username="bob_search", email="bob_search@example.com")
+    bob_res = client.get(f"/scans/search?q={marker}", headers=auth_headers(bob))
+    assert bob_res.status_code == 200
+    assert bob_res.json()["count"] == 0
+
+    alice_res = client.get(f"/scans/search?q={marker}", headers=auth_headers(alice))
+    assert alice_res.status_code == 200
+    assert alice_res.json()["count"] == 1
+
+
+def test_share_url_ignores_spoofed_host_header():
+    # Review finding #2: the share URL must be built from the trusted
+    # APP_BASE_URL, not the client-controlled Host header, to prevent Host
+    # header injection (phishing links).
+    token = register_and_login(username="alice_host", email="alice_host@example.com")
+    scan_id = _create_scan(token)
+    resp = client.post(
+        f"/scans/{scan_id}/share",
+        json={},
+        headers={**auth_headers(token), "Host": "evil.example.com"},
+    )
+    assert resp.status_code == 201
+    assert "evil.example.com" not in resp.json()["share_url"]
+
+
+def test_scans_limit_is_bounded():
+    # Review finding #3: an oversized page size must be rejected (DoS guard).
+    token = register_and_login(username="alice_limit", email="alice_limit@example.com")
+    assert client.get("/scans?limit=1000000000", headers=auth_headers(token)).status_code == 422
+    assert client.get("/scans?limit=50", headers=auth_headers(token)).status_code == 200

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -215,8 +215,11 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
 
 @app.get("/scans", response_model=List[ScanOut])
 def list_scans(
-    skip: int = 0,
-    limit: int = 50,
+    # Bound pagination server-side: cap the page size so a client cannot
+    # request a huge limit and exhaust memory / the database (DoS), and keep
+    # skip non-negative.
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -259,7 +262,7 @@ def search_scans(
 ):
     if not q or len(q) < 2:
         raise HTTPException(status_code=400, detail="Search query must be at least 2 characters")
-    results = search_scans_by_query(db, q)
+    results = search_scans_by_query(db, q, current_user.id)
     return {"results": results, "count": len(results)}
 
 
@@ -370,15 +373,19 @@ def create_share_link(
     db.add(link)
     db.commit()
 
-    # Build the URL from the incoming request host, falling back to the
-    # configured base URL. Note: the Host header is client-controlled and can
-    # be spoofed; acceptable for this prototype and documented in the README.
-    base = str(request.base_url).rstrip("/") or APP_BASE_URL
+    # Build the share URL from the trusted, configured base URL. We do NOT use
+    # request.base_url here: the Host header is client-controlled and could be
+    # spoofed to mint links pointing at an attacker domain (Host header
+    # injection -> phishing / credential theft).
+    base = APP_BASE_URL.rstrip("/")
     share_url = f"{base}/share/{token}"
     return ShareUrlOut(share_url=share_url, expires_at=expires_at)
 
 
 @app.get("/share/{token}", response_model=SharedScanOut)
+# NOTE: password arrives as a query parameter because the brief mandates it.
+# This is a known trade-off (CWE-598): query strings can leak via logs,
+# proxies and Referer. A hardened design would use a header or a POST body.
 def get_shared_scan(
     token: str,
     password: Optional[str] = None,

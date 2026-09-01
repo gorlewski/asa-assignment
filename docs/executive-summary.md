@@ -80,8 +80,13 @@ out-of-scope or third-party components, each with a control in place.
 ## How the work was done (quality note)
 
 The work was done with Cursor (private Pro subscription) using **Claude Opus 4.8**
-as the main model. To reduce single-model blind spots, we plan a **second-opinion
+as the main model. To reduce single-model blind spots, we also ran a **second-opinion
 review with Gemini** — a different model family, so it reviews the findings
-independently rather than repeating the same assumptions. Full technical detail,
-decisions and trade-offs are in [`technical-summary.md`](./technical-summary.md)
-and [`remediation-plan.md`](./remediation-plan.md).
+independently rather than repeating the same assumptions. That review caught a
+**genuine critical issue the first pass missed**: the scan **search** endpoint
+did not isolate tenants, so an authenticated user could search and read other
+users' scans. We fixed it (and two lower-severity items) with tests. This is a
+concrete example of why multi-model validation is worth the effort. Full detail
+is in [`multi-model-review.md`](./multi-model-review.md),
+[`technical-summary.md`](./technical-summary.md) and
+[`remediation-plan.md`](./remediation-plan.md).

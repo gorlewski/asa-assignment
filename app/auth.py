@@ -14,7 +14,9 @@ from database import get_db
 
 logger = logging.getLogger(__name__)
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Pin the bcrypt work factor explicitly rather than relying on library
+# defaults, so the KDF cost is consistent and strong across environments.
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 security = HTTPBearer()
 
 
