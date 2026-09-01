@@ -1,0 +1,11 @@
+# Gitleaks configuration for VulnTracker.
+# Extends the default ruleset and excludes our own scanner output, which
+# legitimately contains hashes/IDs that look like secrets but are not.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore our own generated scan reports (self-referential matches)"
+paths = [
+  '''reports/.*\.json''',
+]
