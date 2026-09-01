@@ -294,3 +294,36 @@ def test_jwt_none_algorithm_rejected():
     forged = _forge_none_token({"sub": "victim"})
     resp = client.get("/scans", headers=auth_headers(forged))
     assert resp.status_code == 401
+
+
+def test_search_sql_injection_is_neutralised():
+    # A classic injection payload must be treated as a literal search string,
+    # not executed as SQL. It should simply match nothing and return 200.
+    token = register_and_login(username="searcher", email="searcher@example.com")
+    client.post("/scans", json={
+        "title": "Benign finding",
+        "severity": "low",
+        "affected_component": "misc",
+    }, headers=auth_headers(token))
+
+    payload = "' OR '1'='1"
+    resp = client.get(f"/scans/search?q={payload}", headers=auth_headers(token))
+    assert resp.status_code == 200
+    # The injection must not turn into a tautology that returns rows.
+    assert resp.json()["count"] == 0
+
+
+def test_search_wildcards_are_literal():
+    # LIKE wildcards supplied by the user must be escaped (literal), so a lone
+    # "%" does not match everything.
+    token = register_and_login(username="wild", email="wild@example.com")
+    client.post("/scans", json={
+        "title": "Specific title",
+        "severity": "low",
+        "affected_component": "misc",
+    }, headers=auth_headers(token))
+    # "%%" (two literal percent signs) — if wildcards leaked through, this would
+    # match the row; escaped, it matches nothing. (>=2 chars to pass validation.)
+    resp = client.get("/scans/search?q=%25%25", headers=auth_headers(token))
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 0
