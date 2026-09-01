@@ -35,7 +35,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 def decode_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM, "none"])
+        # Only the configured signing algorithm is accepted. Never allow the
+        # "none" algorithm: it would let an attacker submit an unsigned token
+        # and bypass authentication entirely.
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
     except JWTError as exc:
         logger.debug("JWT decode error: %s", exc)
