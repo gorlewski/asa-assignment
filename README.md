@@ -77,6 +77,56 @@ npm test
 
 ---
 
+## Container Image and Deployment (Task 4)
+
+### Build and run the container
+
+```bash
+# Build the image (multi-stage, non-root, pinned base by digest)
+docker build -t vulntracker-api:dev .
+
+# Run it. The app writes its SQLite DB to /data, so the root filesystem can
+# stay read-only. Configuration is injected via environment variables.
+docker run --rm -p 8000:8000 \
+  --read-only --tmpfs /tmp \
+  --mount type=volume,dst=/data \
+  --cap-drop ALL --security-opt no-new-privileges \
+  vulntracker-api:dev
+
+# Verify
+curl http://localhost:8000/health
+```
+
+The image:
+
+- builds on `python:3.11-slim` **pinned by digest** (see the Dockerfile comment: a
+  Chainguard/distroless base would be used in production to keep the OS layer at
+  ~zero CVEs; we stay on slim only so the exercise builds reproducibly anywhere);
+- runs as a **non-root** user (uid 10001) with a stdlib **HEALTHCHECK**;
+- contains **no secrets** — all configuration comes from the environment.
+
+### Deploy with Helm
+
+A Helm chart lives in `helm/vulntracker/`. It is secure-by-default:
+
+- **Secrets from a secrets manager**: the chart provisions an `ExternalSecret`
+  (External Secrets Operator) that pulls `SECRET_KEY`, `DB_PASSWORD` and
+  `ADMIN_API_KEY` from a backend store (AWS/GCP Secret Manager, Vault, ...).
+  No secret values are stored in the chart or in plain env vars.
+- **Restricted ingress**: a `NetworkPolicy` allows ingress to the API port only
+  from namespaces labelled `network/ingress=true`, and egress only to DNS and the
+  notification service.
+- **Resource limits and security contexts**: CPU/memory requests+limits,
+  `readOnlyRootFilesystem`, `runAsNonRoot`, dropped capabilities,
+  `allowPrivilegeEscalation: false`, `seccompProfile: RuntimeDefault`, and no
+  service-account token mounted.
+
+```bash
+helm lint helm/vulntracker
+helm template vt helm/vulntracker --namespace vulntracker
+# helm install vt helm/vulntracker --namespace vulntracker --create-namespace
+```
+
 ## Feature: Shared Report Link (Task 1)
 
 Share a specific scan result with an external stakeholder via a unique,

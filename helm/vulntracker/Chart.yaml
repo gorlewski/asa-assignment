@@ -1,0 +1,9 @@
+apiVersion: v2
+name: vulntracker
+description: VulnTracker FastAPI service — vulnerability tracking REST API
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.25.0-0"
+maintainers:
+  - name: gorlewski
