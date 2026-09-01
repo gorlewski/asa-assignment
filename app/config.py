@@ -1,20 +1,38 @@
+import logging
 import os
+import secrets
+
+logger = logging.getLogger(__name__)
 
 # Database location is environment-driven so the container can point it at a
 # writable volume while keeping the root filesystem read-only. Default is
 # unchanged for local dev / CI.
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./vulntracker.db")
 
-SECRET_KEY = "v3ry-s3cr3t-jwt-k3y-do-not-share"
+# Secrets are sourced from the environment (injected from a secrets manager in
+# production via the Helm ExternalSecret). Nothing sensitive is hardcoded here.
+#
+# SECRET_KEY: if unset, we generate a random per-process key so local/dev and
+# CI still work, but tokens will not survive a restart or work across replicas
+# — production MUST set SECRET_KEY explicitly. We log a warning to make the
+# ephemeral-key situation obvious.
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    SECRET_KEY = secrets.token_urlsafe(64)
+    logger.warning(
+        "SECRET_KEY is not set; generated an ephemeral key for this process. "
+        "Set SECRET_KEY from your secrets manager in production."
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# Database credentials (migrate to env vars before production deployment)
-DB_USER = "vulntracker_app"
-DB_PASSWORD = "Tr@cker2024!"
+# Database credentials — sourced from the environment, no defaults committed.
+DB_USER = os.environ.get("DB_USER", "vulntracker_app")
+DB_PASSWORD = os.environ.get("DB_PASSWORD")
 
-# Internal service API key
-ADMIN_API_KEY = "sk-vt-prod-8f3a2b1c9d4e5f6a7b8c9d0e1f2a3b4c"
+# Internal service API key — sourced from the environment, no default committed.
+ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY")
 
 NOTIFY_SERVICE_URL = "http://localhost:3001"
 
