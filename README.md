@@ -287,7 +287,8 @@ Push your completed solution to your own GitHub repository and share the URL wit
 ├── docs/
 │   ├── findings.md
 │   ├── remediation-plan.md
-│   └── executive-summary.md
+│   ├── executive-summary.md
+│   └── technical-summary.md   # long-form companion (process, decisions, trade-offs)
 ├── tests/                      # updated if you added Python tests
 └── README.md                   # update with Docker build/run instructions
 ```
