@@ -40,5 +40,14 @@ NOTIFY_SERVICE_URL = "http://localhost:3001"
 # request host is unavailable. Not a secret. Override via env in real deploys.
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:8000")
 
+# CORS allow-list. Comma-separated exact origins that may make credentialed
+# cross-origin requests. Defaults to the local dev origin only; never reflect
+# arbitrary origins.
+CORS_ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:8000").split(",")
+    if o.strip()
+]
+
 # Share link lifetime (hours). The assignment requires 24h.
 SHARE_LINK_TTL_HOURS = int(os.environ.get("SHARE_LINK_TTL_HOURS", "24"))

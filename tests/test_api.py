@@ -343,3 +343,41 @@ def test_get_scan_idor_blocked():
     assert resp.status_code == 404
     # Owner can still read it.
     assert client.get(f"/scans/{scan_id}", headers=auth_headers(alice)).status_code == 200
+
+
+def test_cors_does_not_reflect_arbitrary_origin():
+    # A non-allowlisted origin must not be echoed back.
+    resp = client.get("/health", headers={"Origin": "https://evil.example.com"})
+    assert resp.status_code == 200
+    assert resp.headers.get("access-control-allow-origin") != "https://evil.example.com"
+
+
+def test_cors_allows_configured_origin():
+    resp = client.get("/health", headers={"Origin": "http://localhost:8000"})
+    assert resp.headers.get("access-control-allow-origin") == "http://localhost:8000"
+
+
+def test_error_handler_does_not_leak_internals():
+    # The global exception handler must return a generic body, never the
+    # exception message, type, traceback or request path. We invoke it directly.
+    import asyncio
+    from starlette.requests import Request
+    import main as app_main
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/boom",
+        "headers": [],
+        "query_string": b"",
+    }
+    req = Request(scope)
+    resp = asyncio.new_event_loop().run_until_complete(
+        app_main.global_exception_handler(req, ValueError("secret internal detail"))
+    )
+    body = resp.body.decode()
+    assert resp.status_code == 500
+    assert "secret internal detail" not in body
+    assert "traceback" not in body
+    assert "ValueError" not in body
+    assert body == '{"error":"Internal Server Error"}'

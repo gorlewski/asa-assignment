@@ -1,7 +1,6 @@
 import hashlib
 import logging
 import secrets
-import traceback
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -13,7 +12,7 @@ from sqlalchemy.orm import Session
 
 import models
 from auth import create_access_token, get_current_user, get_password_hash, verify_password
-from config import APP_BASE_URL, NOTIFY_SERVICE_URL, SHARE_LINK_TTL_HOURS
+from config import APP_BASE_URL, CORS_ALLOWED_ORIGINS, NOTIFY_SERVICE_URL, SHARE_LINK_TTL_HOURS
 from database import engine, get_db, search_scans_by_query
 
 logging.basicConfig(level=logging.INFO)
@@ -30,27 +29,36 @@ app = FastAPI(
 
 @app.middleware("http")
 async def cors_middleware(request: Request, call_next):
-    response = await call_next(request)
+    # Only echo the Origin back when it is on the explicit allow-list. Never
+    # reflect an arbitrary Origin together with Allow-Credentials: that would let
+    # any site make credentialed cross-origin requests and read the response.
     origin = request.headers.get("origin")
-    if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin
+    allowed = origin if origin in CORS_ALLOWED_ORIGINS else None
+
+    # Answer CORS preflight without hitting downstream handlers.
+    if request.method == "OPTIONS" and origin is not None:
+        response = JSONResponse(status_code=204, content=None)
+    else:
+        response = await call_next(request)
+
+    if allowed:
+        response.headers["Access-Control-Allow-Origin"] = allowed
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+        response.headers["Vary"] = "Origin"
     return response
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled exception on %s: %s", request.url, exc)
+    # Log the full detail server-side for debugging, but never leak the
+    # exception message, type, traceback or path to the client — that would
+    # disclose internals and aid an attacker.
+    logger.error("Unhandled exception on %s: %s", request.url, exc, exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={
-            "error": str(exc),
-            "type": type(exc).__name__,
-            "traceback": traceback.format_exc(),
-            "path": str(request.url),
-        },
+        content={"error": "Internal Server Error"},
     )
 
 
