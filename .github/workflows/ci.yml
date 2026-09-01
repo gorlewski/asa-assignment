@@ -50,11 +50,11 @@ jobs:
   # Gitleaks (secrets, second opinion). Rationale is documented in
   # docs/findings.md. Each job uploads its raw JSON report as an artifact.
   #
-  # Enforcement note: the SAST and secret gates are report-only for now
-  # (continue-on-error) because the starter code still contains the JWT
-  # 'none' bypass, the SQL injection and the hardcoded secrets. Those are
-  # remediated in Task 3; the corresponding gates are made hard (blocking)
-  # in that task. SCA/container/IaC gates are already hard and green.
+  # Enforcement note: all gates are hard (blocking). The SAST and secret
+  # gates were report-only through Task 1/Task 4 while the starter JWT 'none'
+  # bypass, SQL injection and hardcoded secrets still existed; Task 3 fixed
+  # those, so the gates are now blocking. SCA/container/IaC gates were already
+  # hard and green.
   # ---------------------------------------------------------------------------
 
   sast:
@@ -75,10 +75,7 @@ jobs:
           name: sast.semgrep.json
           path: sast.semgrep.json
 
-      # Report-only until Task 3 fixes the starter ERROR-level findings.
-      # TODO(Task 3): remove continue-on-error to make this a hard gate.
-      - name: Fail on ERROR-severity findings (report-only)
-        continue-on-error: true
+      - name: Fail on ERROR-severity findings
         run: semgrep --config auto --error --severity ERROR app/ notify/
 
   sca:
@@ -167,10 +164,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Report-only until Task 3 removes the hardcoded starter secrets.
-      # TODO(Task 3): remove continue-on-error to make this a hard gate.
-      - name: Gitleaks scan (report-only)
-        continue-on-error: true
+      - name: Gitleaks scan
         run: |
           docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
             dir /repo --config /repo/.gitleaks.toml \
