@@ -20,3 +20,22 @@ env/
 htmlcov/
 node_modules/
 .claude/
+
+# --- Assignment-specific additions ---
+# Local Python version pin handled by pyenv; keep the file tracked, ignore local venvs
+.python-version.local
+
+# Test / runtime databases
+test_vulntracker.db
+vulntracker.db
+
+# Security scanner caches / working dirs (raw JSON reports are committed under reports/)
+.trivycache/
+.semgrep/
+.hadolint.yaml.local
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/
