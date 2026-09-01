@@ -120,6 +120,11 @@ A Helm chart lives in `helm/vulntracker/`. It is secure-by-default:
   `readOnlyRootFilesystem`, `runAsNonRoot`, dropped capabilities,
   `allowPrivilegeEscalation: false`, `seccompProfile: RuntimeDefault`, and no
   service-account token mounted.
+- **Destination-restricted egress**: the app may only reach DNS and the notify
+  service pods (by label), not arbitrary destinations.
+- **Availability**: two replicas, a `PodDisruptionBudget`, a zero-downtime
+  rolling update strategy and `topologySpreadConstraints` to spread pods across
+  nodes.
 
 ```bash
 helm lint helm/vulntracker

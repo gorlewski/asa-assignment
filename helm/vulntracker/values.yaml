@@ -4,6 +4,25 @@
 
 replicaCount: 2
 
+# Keep only a small ReplicaSet history to reduce clutter/attack surface.
+revisionHistoryLimit: 3
+
+# Rolling update with zero downtime.
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+# Ensure at least one replica stays available during voluntary disruptions.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Spread replicas across nodes for availability.
+topologySpreadConstraints:
+  enabled: true
+
 image:
   repository: vulntracker-api
   # Pin by digest in real environments. Tag is used here for local/demo builds.
@@ -110,9 +129,18 @@ networkPolicy:
   # Egress: DNS plus the notification service. Everything else denied.
   egress:
     dns: true
-    # CIDR/ports the app is allowed to reach (notify service). Tighten per env.
+    # Destination-restricted egress: only to pods that match this selector on
+    # the given port, not to every IP. Adjust the selector/namespace to match
+    # how the notify service is labelled in your cluster.
     to:
-      - ports:
+      - selector:
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vulntracker-notify
+          namespaceSelector:
+            matchLabels:
+              network/notify: "true"
+        ports:
           - port: 3001
             protocol: TCP
 

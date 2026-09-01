@@ -29,14 +29,16 @@ spec:
         - port: 53
           protocol: TCP
     {{- end }}
-    {{- with .Values.networkPolicy.egress.to }}
-    - to: []
+    {{- range .Values.networkPolicy.egress.to }}
+    - to:
+        - podSelector:
+            {{- toYaml .selector.podSelector | nindent 12 }}
+          namespaceSelector:
+            {{- toYaml .selector.namespaceSelector | nindent 12 }}
       ports:
-        {{- range . }}
         {{- range .ports }}
         - port: {{ .port }}
           protocol: {{ .protocol }}
-        {{- end }}
         {{- end }}
     {{- end }}
 {{- end }}
