@@ -327,3 +327,19 @@ def test_search_wildcards_are_literal():
     resp = client.get("/scans/search?q=%25%25", headers=auth_headers(token))
     assert resp.status_code == 200
     assert resp.json()["count"] == 0
+
+
+def test_get_scan_idor_blocked():
+    # Alice creates a scan; Bob must not be able to read it by ID.
+    alice = register_and_login(username="alice_get", email="alice_get@example.com")
+    scan_id = client.post("/scans", json={
+        "title": "Alice private finding",
+        "severity": "high",
+        "affected_component": "secret",
+    }, headers=auth_headers(alice)).json()["id"]
+
+    bob = register_and_login(username="bob_get", email="bob_get@example.com")
+    resp = client.get(f"/scans/{scan_id}", headers=auth_headers(bob))
+    assert resp.status_code == 404
+    # Owner can still read it.
+    assert client.get(f"/scans/{scan_id}", headers=auth_headers(alice)).status_code == 200
