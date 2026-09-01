@@ -269,3 +269,28 @@ def test_share_link_password_blank_rejected():
         headers=auth_headers(token),
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Remediation regression tests (Task 3)
+# ---------------------------------------------------------------------------
+
+def _forge_none_token(claims: dict) -> str:
+    # Build an unsigned JWT ({"alg":"none"}) by hand with an empty signature,
+    # exactly as an attacker would, since the library refuses to encode one.
+    import base64, json
+
+    def b64(obj):
+        raw = json.dumps(obj, separators=(",", ":")).encode()
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    return f"{b64({'alg': 'none', 'typ': 'JWT'})}.{b64(claims)}."
+
+
+def test_jwt_none_algorithm_rejected():
+    # An unsigned ("alg: none") token forged for an existing user must be
+    # rejected now that we no longer accept the "none" algorithm.
+    register_and_login(username="victim", email="victim@example.com")
+    forged = _forge_none_token({"sub": "victim"})
+    resp = client.get("/scans", headers=auth_headers(forged))
+    assert resp.status_code == 401
