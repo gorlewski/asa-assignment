@@ -87,14 +87,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Run Trivy via its official image for deterministic behaviour (avoids the
+      # action's binary installer, which can hit GitHub rate limits on runners).
       - name: Trivy dependency scan (JSON report)
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln
-          format: json
-          output: sca.trivy.json
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src aquasec/trivy:0.65.0 \
+            fs --scanners vuln --format json --output sca.trivy.json .
 
       - name: Upload SCA report
         if: always()
@@ -104,14 +102,9 @@ jobs:
           path: sca.trivy.json
 
       - name: Fail on CRITICAL dependency CVEs
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln
-          severity: CRITICAL
-          exit-code: "1"
-          ignore-unfixed: true
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src aquasec/trivy:0.65.0 \
+            fs --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 .
 
   container-scan:
     name: Container image scan (Trivy)
@@ -123,13 +116,11 @@ jobs:
         run: docker build -t vulntracker-api:ci .
 
       - name: Trivy image scan (JSON report)
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          scan-type: image
-          image-ref: vulntracker-api:ci
-          scanners: vuln,secret,misconfig
-          format: json
-          output: container.trivy.json
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/src" -w /src aquasec/trivy:0.65.0 \
+            image --scanners vuln,secret,misconfig --format json \
+            --output container.trivy.json vulntracker-api:ci
 
       - name: Upload container report
         if: always()
@@ -138,16 +129,12 @@ jobs:
           name: container.trivy.json
           path: container.trivy.json
 
-      - name: Fail on CRITICAL (fixable) in our layers
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          scan-type: image
-          image-ref: vulntracker-api:ci
-          scanners: vuln
-          vuln-type: library
-          severity: CRITICAL
-          exit-code: "1"
-          ignore-unfixed: true
+      - name: Fail on CRITICAL (fixable) library CVEs in our layers
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.65.0 \
+            image --scanners vuln --pkg-types library --severity CRITICAL \
+            --ignore-unfixed --exit-code 1 vulntracker-api:ci
 
   iac-scan:
     name: IaC scan (Trivy)
@@ -156,12 +143,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Trivy IaC/config scan (JSON report)
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          scan-type: config
-          scan-ref: helm/
-          format: json
-          output: iac.trivy.json
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src aquasec/trivy:0.65.0 \
+            config --format json --output iac.trivy.json helm/
 
       - name: Upload IaC report
         if: always()
@@ -171,12 +155,9 @@ jobs:
           path: iac.trivy.json
 
       - name: Fail on HIGH/CRITICAL misconfigurations
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          scan-type: config
-          scan-ref: helm/
-          severity: HIGH,CRITICAL
-          exit-code: "1"
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src aquasec/trivy:0.65.0 \
+            config --severity HIGH,CRITICAL --exit-code 1 helm/
 
   secrets:
     name: Secret scan (Gitleaks)
