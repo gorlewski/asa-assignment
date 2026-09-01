@@ -1,6 +1,8 @@
+import hashlib
 import logging
+import secrets
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import httpx
@@ -11,7 +13,7 @@ from sqlalchemy.orm import Session
 
 import models
 from auth import create_access_token, get_current_user, get_password_hash, verify_password
-from config import NOTIFY_SERVICE_URL
+from config import APP_BASE_URL, NOTIFY_SERVICE_URL, SHARE_LINK_TTL_HOURS
 from database import engine, get_db, search_scans_by_query
 
 logging.basicConfig(level=logging.INFO)
@@ -107,6 +109,36 @@ class ScanOut(BaseModel):
         from_attributes = True
 
 
+class ShareCreate(BaseModel):
+    # Optional password to protect the shared link. Never stored in plaintext.
+    password: Optional[str] = None
+
+
+class ShareUrlOut(BaseModel):
+    share_url: str
+    expires_at: datetime
+
+
+class SharedScanOut(BaseModel):
+    """Public projection of a scan exposed via a share link.
+
+    Deliberately omits owner_id and remediation_notes so a public link does not
+    leak internal ownership or remediation detail beyond what is needed.
+    """
+
+    id: int
+    title: str
+    description: Optional[str]
+    severity: str
+    status: str
+    cve_id: Optional[str]
+    affected_component: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -120,6 +152,17 @@ def _fire_notify(event: str, payload: dict) -> None:
         )
     except Exception as exc:
         logger.warning("Notification service unreachable: %s", exc)
+
+
+def _hash_token(token: str) -> str:
+    """Return the SHA-256 hex digest of a share token.
+
+    We store only this digest, so a database read does not reveal usable
+    tokens. SHA-256 is appropriate here because the token itself is a
+    256-bit CSPRNG value (secrets.token_urlsafe) and is not password-like,
+    so it is not subject to brute force.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +313,85 @@ def delete_scan(
         raise HTTPException(status_code=404, detail="Scan not found")
     db.delete(scan)
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Share routes
+# ---------------------------------------------------------------------------
+
+@app.post("/scans/{scan_id}/share", response_model=ShareUrlOut, status_code=201)
+def create_share_link(
+    scan_id: int,
+    payload: ShareCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Ownership check: only the owner may share a scan. Return 404 (not 403) so
+    # we do not confirm the existence of scans belonging to other users.
+    scan = db.query(models.ScanResult).filter(
+        models.ScanResult.id == scan_id,
+        models.ScanResult.owner_id == current_user.id,
+    ).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    # 256-bit CSPRNG token; unguessable and non-sequential.
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(hours=SHARE_LINK_TTL_HOURS)
+
+    password_hash = None
+    if payload.password is not None:
+        if not payload.password.strip():
+            raise HTTPException(status_code=400, detail="password must not be empty")
+        password_hash = get_password_hash(payload.password)
+
+    link = models.ShareLink(
+        scan_id=scan.id,
+        token_hash=_hash_token(token),
+        password_hash=password_hash,
+        expires_at=expires_at,
+    )
+    db.add(link)
+    db.commit()
+
+    # Build the URL from the incoming request host, falling back to the
+    # configured base URL. Note: the Host header is client-controlled and can
+    # be spoofed; acceptable for this prototype and documented in the README.
+    base = str(request.base_url).rstrip("/") or APP_BASE_URL
+    share_url = f"{base}/share/{token}"
+    return ShareUrlOut(share_url=share_url, expires_at=expires_at)
+
+
+@app.get("/share/{token}", response_model=SharedScanOut)
+def get_shared_scan(
+    token: str,
+    password: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    # Look up by token hash. A generic 404 is returned for unknown, expired or
+    # otherwise invalid tokens to avoid leaking which case occurred.
+    link = db.query(models.ShareLink).filter(
+        models.ShareLink.token_hash == _hash_token(token)
+    ).first()
+    if not link:
+        raise HTTPException(status_code=404, detail="Share link not found or expired")
+
+    if link.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=404, detail="Share link not found or expired")
+
+    if link.password_hash is not None:
+        # Password required. Constant-time verification via passlib.
+        if not password or not verify_password(password, link.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid or missing password")
+
+    scan = db.query(models.ScanResult).filter(
+        models.ScanResult.id == link.scan_id
+    ).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Share link not found or expired")
+
+    return scan
 
 
 # ---------------------------------------------------------------------------
